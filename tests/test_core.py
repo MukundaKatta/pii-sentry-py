@@ -15,10 +15,7 @@ from pii_sentry import DEFAULT_DETECTORS, Detector, Match, detect, redact
 
 
 def test_detect_finds_email_phone_ssn_in_one_pass():
-    text = (
-        "Contact alice@example.com or 555-123-4567. "
-        "SSN: 123-45-6789."
-    )
+    text = "Contact alice@example.com or 555-123-4567. SSN: 123-45-6789."
     findings = detect(text)
 
     types = {f.type for f in findings}
@@ -153,3 +150,33 @@ def test_pre_compiled_pattern_is_accepted():
     det.add_detector("yell", re.compile(r"[A-Z]{4,}"))
     findings = det.detect("HELLO world")
     assert findings and findings[0].value == "HELLO"
+
+
+# ---------------------------------------------------------------------------
+# Overlapping matches must not corrupt the output
+# ---------------------------------------------------------------------------
+
+
+def test_redact_overlapping_spans_does_not_drop_characters():
+    # Two detectors produce overlapping spans: "abcd" (0-4) and "bcde" (1-5).
+    # The first match (sorted by start) wins; the later overlapping span is
+    # skipped so trailing characters are preserved rather than corrupted.
+    det = Detector(detectors={})
+    det.add_detector("ab", r"abcd")
+    det.add_detector("bc", r"bcde")
+    assert det.redact("abcde", "[X]") == "[X]e"
+
+
+def test_redact_nested_spans_keeps_surrounding_text():
+    # A short span nested at the same start as a longer one. The first span
+    # (start=0) is applied; the longer overlapping span is skipped.
+    det = Detector(detectors={})
+    det.add_detector("short", r"abc")
+    det.add_detector("long", r"abcdef")
+    assert det.redact("abcdef", "[X]") == "[X]def"
+
+
+def test_redact_multiple_nonoverlapping_spans_are_all_replaced():
+    # Sanity: independent spans are each redacted and intervening text kept.
+    out = redact("a@b.co then 555-555-5555 done")
+    assert out == "[REDACTED:email] then [REDACTED:phone] done"

@@ -17,9 +17,7 @@ from typing import Callable, Mapping, Pattern, Union
 # compiled with re.IGNORECASE where the JS source uses the ``i`` flag.
 DEFAULT_DETECTORS: dict[str, Pattern[str]] = {
     "email": re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE),
-    "phone": re.compile(
-        r"\b(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)\d{3}[-.\s]?\d{4}\b"
-    ),
+    "phone": re.compile(r"\b(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)\d{3}[-.\s]?\d{4}\b"),
     "ssn": re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),
     # 13-19 digit card-like sequences. Allows spaces/dashes between digits, like
     # the JS source. Loose by design -- pair with a Luhn check downstream if
@@ -127,19 +125,31 @@ class Detector:
           * a ``Callable[[str], str]`` -- called with the match ``type``,
             returning the replacement string for that hit.
 
-        Replacements are applied right-to-left so earlier offsets stay valid.
+        Output is rebuilt left-to-right in a single pass. Matches are sorted by
+        start offset (see ``detect``); when two detectors produce overlapping
+        spans the first one wins and any span overlapping an already-redacted
+        region is skipped, so the result is never corrupted by stale offsets.
         """
-        if replacement is None:
-            replacement = lambda type_name: f"[REDACTED:{type_name}]"
 
-        output = str(text)
-        # Reverse so substituting later offsets first leaves earlier ones intact.
-        for finding in reversed(self.detect(output)):
-            token = (
-                replacement(finding.type) if callable(replacement) else replacement
-            )
-            output = output[: finding.start] + token + output[finding.end :]
-        return output
+        def token_for(type_name: str) -> str:
+            if replacement is None:
+                return f"[REDACTED:{type_name}]"
+            if callable(replacement):
+                return replacement(type_name)
+            return replacement
+
+        source = str(text)
+        parts: list[str] = []
+        cursor = 0
+        for finding in self.detect(source):
+            # Skip spans that fall inside a region we've already redacted.
+            if finding.start < cursor:
+                continue
+            parts.append(source[cursor : finding.start])
+            parts.append(token_for(finding.type))
+            cursor = finding.end
+        parts.append(source[cursor:])
+        return "".join(parts)
 
 
 # Shared default instance for the module-level functions. Tests can poke at it

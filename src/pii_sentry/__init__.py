@@ -15,7 +15,15 @@ handful of common API-key prefixes (``sk-``, ``ghp_``, ``xoxb-``,
 ``api_``). Add your own with ``Detector.add_detector(name, regex)``.
 """
 
-from .core import DEFAULT_DETECTORS, Detector, Match, detect, detect_pii, redact, redact_pii
+from .core import (
+    DEFAULT_DETECTORS,
+    Detector,
+    Match,
+    detect,
+    detect_pii,
+    redact,
+    redact_pii,
+)
 
 __version__ = "0.1.0"
 VERSION = __version__
